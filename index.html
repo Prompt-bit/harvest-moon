@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Harvest Moon Clone - Shovel Upgrade</title>
+<style>
+  body { margin: 0; background: #000; color: #fff; font-family: Arial, sans-serif; }
+  canvas { display: block; margin: auto; background: #222; }
+  #upgradePanel {
+    width: 640px;
+    margin: 10px auto;
+    background: #333;
+    padding: 10px;
+    border-radius: 8px;
+    text-align: center;
+  }
+  button {
+    background: #555;
+    border: none;
+    color: white;
+    padding: 10px 20px;
+    font-size: 18px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: background 0.3s;
+  }
+  button:hover:enabled {
+    background: #777;
+  }
+  button:disabled {
+    background: #222;
+    cursor: not-allowed;
+  }
+  .beta-label {
+    display: inline-block;
+    background: #ffe066;
+    color: #7a5c00;
+    font-size: 12px;
+    font-weight: bold;
+    border-radius: 12px;
+    padding: 2px 8px;
+    margin-left: 6px;
+    letter-spacing: 1px;
+    border: 1px solid #e6c200;
+    vertical-align: middle;
+    box-shadow: 0 1px 2px #0001;
+  }
+</style>
+</head>
+<body>
+
+<div style="text-align: center; padding: 10px;">
+  <label style="font-size: 16px;">
+    <input type="checkbox" id="modeToggle" />
+    Light Mode <span class="beta-label">BETA</span>
+  </label>
+</div>
+<script>
+  const modeToggle = document.getElementById('modeToggle');
+  modeToggle.addEventListener('change', () => {
+    if (modeToggle.checked) {
+      document.body.style.backgroundColor = '#fff';
+      document.body.style.color = '#000';
+      document.querySelector('canvas').style.backgroundColor = '#eee';
+        document.querySelectorAll('button').forEach(btn => {
+            btn.style.backgroundColor = '#ccc';
+            btn.style.color = '#000';
+        });
+    } else {
+      document.body.style.backgroundColor = '#000';
+      document.body.style.color = '#fff';
+      document.querySelector('canvas').style.backgroundColor = '#222';
+    }
+  });
+</script>
+<canvas id="game"></canvas>
+<div class="ui" style="display: flex;">
+    <div id="music">
+        <h2>Harvest Moon Music</h2>
+        <audio id="audio" src="music.mp3" controls loop ></audio>
+        <script>
+            audio = document.getElementById('audio');
+
+            audio.volume = 0.2; // Set initial volume
+        </script>
+    </div>
+
+    <div id="upgradePanel">
+        <img src="shovel.png" alt="dig" style="width: 150px; height: 150px; border: #ffffff solid 2px; border-radius: 10px;"><br/>
+    <button id="upgradeShovelBtn">Upgrade Shovel ($50)</button><br/>
+    <span style="color: #000; background: #fff; padding: 2px 8px; border-radius: 4px;" id="shovelLevel">1</span>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const TILE_SIZE = 32;
+const FARM_WIDTH = 40;
+const FARM_HEIGHT = 30;
+
+const VIEWPORT_WIDTH = 640;
+const VIEWPORT_HEIGHT = 480;
+
+canvas.width = VIEWPORT_WIDTH;
+canvas.height = VIEWPORT_HEIGHT;
+
+let day = 1;
+let money = 100;
+let inventory = 0;
+let seeds = 5;
+
+let shovelLevel = 1;
+
+let farmTiles = [];
+let crops = [];
+let playerPos = { x: 5, y: 5 };
+
+const imagesToLoad = {
+  grass: 'grass.png',
+  dirt: 'dirt.png',
+  player: 'player.png',
+  crop1: 'crop_stage1.png',
+  crop2: 'crop_stage2.png',
+  crop3: 'crop_stage3.png'
+};
+
+let images = {};
+
+// Initialize farm with grass and empty crops
+for(let y = 0; y < FARM_HEIGHT; y++) {
+  farmTiles[y] = [];
+  crops[y] = [];
+  for(let x = 0; x < FARM_WIDTH; x++) {
+    farmTiles[y][x] = 'grass';
+    crops[y][x] = null;
+  }
+}
+
+// Load all images and start game loop after
+function loadImages(imagePaths, callback) {
+  const imgs = {};
+  let loadedCount = 0;
+  const total = Object.keys(imagePaths).length;
+
+  for(const key in imagePaths) {
+    imgs[key] = new Image();
+    imgs[key].src = imagePaths[key];
+    imgs[key].onload = () => {
+      loadedCount++;
+      if(loadedCount === total) {
+        callback(imgs);
+      }
+    };
+    imgs[key].onerror = () => {
+      console.error(`Failed to load: ${imagePaths[key]}`);
+    };
+  }
+}
+
+loadImages(imagesToLoad, (loadedImages) => {
+  images = loadedImages;
+  requestAnimationFrame(gameLoop);
+});
+
+// Movement keys tracking
+const keysDown = {};
+window.addEventListener('keydown', e => {
+  keysDown[e.key] = true;
+});
+window.addEventListener('keyup', e => {
+  keysDown[e.key] = false;
+});
+
+function movePlayer() {
+  if(keysDown['ArrowLeft'] && playerPos.x > 0) {
+    playerPos.x--;
+    keysDown['ArrowLeft'] = false;
+  }
+  if(keysDown['ArrowRight'] && playerPos.x < FARM_WIDTH -1) {
+    playerPos.x++;
+    keysDown['ArrowRight'] = false;
+  }
+  if(keysDown['ArrowUp'] && playerPos.y > 0) {
+    playerPos.y--;
+    keysDown['ArrowUp'] = false;
+  }
+  if(keysDown['ArrowDown'] && playerPos.y < FARM_HEIGHT -1) {
+    playerPos.y++;
+    keysDown['ArrowDown'] = false;
+  }
+}
+
+// Player actions
+window.addEventListener('keydown', e => {
+  const x = playerPos.x;
+  const y = playerPos.y;
+
+  // Calculate digging range based on shovel level
+  const range = shovelLevel * 2 - 1;
+  const halfRange = Math.floor(range / 2);
+
+  if(e.key === ' ') {
+    // Dig/plant/harvest in the area based on shovel level
+    for(let dy = -halfRange; dy <= halfRange; dy++) {
+      for(let dx = -halfRange; dx <= halfRange; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if(nx >= 0 && nx < FARM_WIDTH && ny >= 0 && ny < FARM_HEIGHT) {
+          const tile = farmTiles[ny][nx];
+          const crop = crops[ny][nx];
+
+          if(tile === 'grass') {
+            farmTiles[ny][nx] = 'dirt';
+          } else if(tile === 'dirt' && !crop && seeds > 0) {
+            crops[ny][nx] = { stage: 1 };
+            seeds--;
+          }
+
+          // Only harvest if on player's exact tile
+          if(nx === x && ny === y && crop && crop.stage === 3) {
+            crops[ny][nx] = null;
+            inventory++;
+          }
+        }
+      }
+    }
+  }
+
+  if(e.key.toLowerCase() === 's') {
+    if(inventory > 0) {
+      const earned = inventory * 20;
+      money += earned;
+      console.log(`Sold ${inventory} crops for $${earned}!`);
+      inventory = 0;
+    } else {
+      console.log("No crops to sell!");
+    }
+  }
+
+  if(e.key.toLowerCase() === 'b') {
+    if(money >= 10) {
+      money -= 10;
+      seeds++;
+      console.log("Bought 1 seed for $10.");
+    } else {
+      console.log("Not enough money to buy seeds!");
+    }
+  }
+});
+
+// Grow crops each interval
+function growCrops() {
+  day++;
+  for(let y = 0; y < FARM_HEIGHT; y++) {
+    for(let x = 0; x < FARM_WIDTH; x++) {
+      const crop = crops[y][x];
+      if(crop && crop.stage < 3) {
+        crop.stage++;
+      }
+    }
+  }
+}
+
+// Camera to follow player
+let camera = { x: 0, y: 0 };
+function updateCamera() {
+  const px = playerPos.x * TILE_SIZE;
+  const py = playerPos.y * TILE_SIZE;
+
+  camera.x = px - VIEWPORT_WIDTH / 2 + TILE_SIZE / 2;
+  camera.y = py - VIEWPORT_HEIGHT / 2 + TILE_SIZE / 2;
+
+  camera.x = Math.max(0, Math.min(camera.x, FARM_WIDTH * TILE_SIZE - VIEWPORT_WIDTH));
+  camera.y = Math.max(0, Math.min(camera.y, FARM_HEIGHT * TILE_SIZE - VIEWPORT_HEIGHT));
+}
+
+// Draw everything
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  updateCamera();
+
+  const startCol = Math.floor(camera.x / TILE_SIZE);
+  const startRow = Math.floor(camera.y / TILE_SIZE);
+
+  const endCol = Math.min(FARM_WIDTH, startCol + Math.ceil(VIEWPORT_WIDTH / TILE_SIZE) + 1);
+  const endRow = Math.min(FARM_HEIGHT, startRow + Math.ceil(VIEWPORT_HEIGHT / TILE_SIZE) + 1);
+
+  for(let y = startRow; y < endRow; y++) {
+    for(let x = startCol; x < endCol; x++) {
+      const px = x * TILE_SIZE - camera.x;
+      const py = y * TILE_SIZE - camera.y;
+
+      ctx.drawImage(images[farmTiles[y][x]], px, py, TILE_SIZE, TILE_SIZE);
+
+      const crop = crops[y][x];
+      if(crop) {
+        ctx.drawImage(images['crop' + crop.stage], px, py, TILE_SIZE, TILE_SIZE);
+      }
+
+      ctx.strokeStyle = '#00000044';
+      ctx.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
+    }
+  }
+
+  const playerScreenX = playerPos.x * TILE_SIZE - camera.x;
+  const playerScreenY = playerPos.y * TILE_SIZE - camera.y;
+  ctx.drawImage(images.player, playerScreenX, playerScreenY, TILE_SIZE, TILE_SIZE);
+
+  // UI text
+  ctx.fillStyle = '#FFF';
+  ctx.font = '20px Arial';
+  ctx.fillText(`Day: ${day}`, 10, canvas.height - 100);
+  ctx.fillText(`Money: $${money}`, 10, canvas.height - 75);
+  ctx.fillText(`Crops: ${inventory}`, 10, canvas.height - 50);
+  ctx.fillText(`Seeds: ${seeds} (Press B to buy $10)`, 200, canvas.height - 50);
+  ctx.fillText(`Shovel Level: ${shovelLevel}`, 10, canvas.height - 25);
+}
+
+// Upgrade button and UI logic
+const upgradeShovelBtn = document.getElementById('upgradeShovelBtn');
+const shovelLevelSpan = document.getElementById('shovelLevel');
+
+function updateUpgradeButtons() {
+  upgradeShovelBtn.disabled = money < 50;
+  shovelLevelSpan.textContent = shovelLevel;
+}
+
+upgradeShovelBtn.addEventListener('click', () => {
+  if(money >= 50) {
+    money -= 50;
+    shovelLevel++;
+    updateUpgradeButtons();
+    console.log('Shovel upgraded! Level:', shovelLevel);
+  } else {
+    alert("Not enough money!");
+  }
+});
+
+updateUpgradeButtons();
+
+// Game loop timing for crop growth
+let lastGrowTime = 0;
+const growInterval = 5000; // 5 seconds per day for testing
+
+function gameLoop(timestamp) {
+  movePlayer();
+  draw();
+
+  if(!lastGrowTime) lastGrowTime = timestamp;
+  if(timestamp - lastGrowTime > growInterval) {
+    growCrops();
+    lastGrowTime = timestamp;
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+</script>
+
+</body>
+</html>
